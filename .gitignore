@@ -1,0 +1,25 @@
+# Build-Ausgaben
+*.zip
+*.nupkg
+Release/
+
+# Temporäre PowerShell-Dateien
+*.ps1xml
+
+# Editor-Artefakte
+.vscode/
+.idea/
+*.suo
+*.user
+Thumbs.db
+.DS_Store
+
+# Testausgaben
+TestResults/
+*.trx
+
+# Secrets — niemals einchecken!
+*secrets*
+*apikey*
+*password*
+*.cred
