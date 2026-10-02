@@ -19,6 +19,13 @@ This project uses [Semantic Versioning](https://semver.org/).
   unfilterable, newly created objects not being queryable immediately, and
   sensor types having to be matched by display name because kind `ping` and
   `paessler.icmp.ping_sensor` coexist and show as `Ping` and `Ping v2`.
+- `-ResolveAttempts` and `-ResolveDelayMs` on the import script control how long
+  it waits for a freshly created object to become queryable. The previous fixed
+  window of 8 attempts at 750 ms - about 6 seconds - proved far too short on a
+  real server, where 5 of 8 groups were reported as created but not queryable
+  and all their devices were skipped as a consequence. The default is now 15
+  attempts at 1000 ms, and the warning names the actual window instead of a
+  hard-coded "6 s".
 - `examples/PRTG-Export-Demo.xlsx` - example workbook, 23 rows across 3 groups
   and 8 devices. Addresses come from the RFC 5737 documentation ranges, so they
   cannot collide with anyone's real network.

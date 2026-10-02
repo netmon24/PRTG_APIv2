@@ -96,6 +96,16 @@
     .PARAMETER ExportCsv
     Writes a log of every group, device and sensor touched to this path.
 
+    .PARAMETER ResolveAttempts
+    How many times to look up a freshly created object before giving up.
+    Default 15. PRTG does not make new objects queryable immediately, and on
+    a busy server the delay can exceed ten seconds - raise this if the run
+    reports objects as created but not queryable.
+
+    .PARAMETER ResolveDelayMs
+    Milliseconds between those attempts. Default 1000, so the default window
+    is about 15 seconds per object.
+
     .EXAMPLE
     .\Import-PRTGStructureFromExcel.ps1 -ExcelPath '.\examples\PRTG-Export-Demo.xlsx' `
         -ComputerName 'prtg.example.com' -ParentProbeName 'Demo Probe' -WhatIf
@@ -175,7 +185,15 @@ param(
     [string[]]$SensorKindFilter = @('ping'),
 
     [Parameter()]
-    [string]$ExportCsv
+    [string]$ExportCsv,
+
+    [Parameter()]
+    [ValidateRange(1, 200)]
+    [int]$ResolveAttempts = 15,
+
+    [Parameter()]
+    [ValidateRange(100, 30000)]
+    [int]$ResolveDelayMs = 1000
 )
 
 # ---------------------------------------------------------------------
@@ -516,8 +534,8 @@ function Resolve-CreatedObjectId {
         [Parameter()][object]$Created,
         # Scriptblock looking the object up if the return value was empty
         [Parameter(Mandatory)][scriptblock]$Fallback,
-        [Parameter()][int]$Attempts = 8,
-        [Parameter()][int]$DelayMs = 750
+        [Parameter()][int]$Attempts = $ResolveAttempts,
+        [Parameter()][int]$DelayMs = $ResolveDelayMs
     )
 
     if ($Created) {
@@ -592,7 +610,7 @@ foreach ($groupName in $groupNamesOrdered.Keys) {
             $summary.Add([pscustomobject]@{ Type = 'Group'; Name = $groupName; Action = 'Created'; Id = $newId; ParentId = $parentId })
         }
         else {
-            Write-Warning "Group '$groupName' was created but was still not queryable after several attempts (about 6 s). Its devices are skipped - run the script again and they will be found."
+            Write-Warning "Group '$groupName' was created but was still not queryable after $ResolveAttempts attempts (about $([int]($ResolveAttempts * $ResolveDelayMs / 1000)) s). Its devices are skipped - run the script again, or raise -ResolveAttempts / -ResolveDelayMs."
             $summary.Add([pscustomobject]@{ Type = 'Group'; Name = $groupName; Action = 'Failed'; Id = $null; ParentId = $parentId })
         }
     }
@@ -684,7 +702,7 @@ foreach ($deviceRow in $deviceRows) {
             $deviceIdList.Add([pscustomobject]@{ Id = $newDeviceId; Name = $deviceName; ExcelDevice = $deviceRow.Device; Group = $deviceRow.Group })
         }
         else {
-            Write-Warning "Device '$deviceName' was created but was still not queryable after several attempts (about 6 s). Run the script again and it will be found."
+            Write-Warning "Device '$deviceName' was created but was still not queryable after $ResolveAttempts attempts (about $([int]($ResolveAttempts * $ResolveDelayMs / 1000)) s). Run the script again, or raise -ResolveAttempts / -ResolveDelayMs."
             $summary.Add([pscustomobject]@{ Type = 'Device'; Name = $deviceName; Action = 'Failed'; Id = $null; ParentId = $groupId })
         }
     }
