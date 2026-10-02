@@ -30,6 +30,28 @@ This project uses [Semantic Versioning](https://semver.org/).
   `[ValidateRange(1,65535)]` — the same duplication that produced the stale
   `8443` fixed in 1.1.0. The parameter now overrides the module default only
   when the caller passes it.
+- **The installer wrote to the wrong Program Files tree in a 32-bit host.**
+  `$env:ProgramFiles` expands to `C:\Program Files (x86)` there, and a module
+  installed in that tree is invisible to the 64-bit console. It now uses
+  `$env:ProgramW6432`, which always names the 64-bit tree, and warns when it
+  had to correct for a 32-bit host. Found on a real Windows Server, where it
+  produced three parallel installations and a fix that appeared not to work.
+- The installer now reports copies of the module found in **other** module
+  roots. `-RemoveOldVersions` only cleans the target scope - by design, since
+  it must not delete from locations the caller did not name - so an old copy
+  elsewhere kept shadowing the new install with nothing pointing at it.
+  Its parameter description now says so instead of claiming it removes all
+  other versions.
+- README attributed `is not digitally signed` to the mark-of-the-web alone. An
+  `AllSigned` execution policy produces the identical message and needs a
+  completely different remedy - and when it comes from Group Policy, the
+  process scope cannot override it at all, leaving the manual installation as
+  the only route. Both cases are now listed separately, along with the 32-bit
+  tree and the shadowing-copy symptoms.
+- README told readers to run the install script before unblocking the files,
+  which cannot work: the execution policy refuses to start the installer, and
+  an installer that never started cannot unblock anything. `Unblock-File` now
+  comes first.
 - `-ComputerName` was `Mandatory` although the help states it is ignored when a
   session already exists, so PowerShell prompted for a value it then discarded.
   It is now required only where it is actually used, with a message naming
