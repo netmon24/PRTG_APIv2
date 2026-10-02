@@ -35,6 +35,7 @@ This module wraps the official PRTG API v2 and provides 28 PowerShell cmdlets fo
 
 | Script | Description |
 |---|---|
+| `Scripts/Import-PRTGStructureFromExcel.ps1` | Rebuilds a PRTG tree - groups, devices, optionally sensors - from an Excel sensor export. See [Migrating from an existing PRTG](#migrating-from-an-existing-prtg) |
 | `Scripts/Find-PRTGInheritanceBreaks.ps1` | Lists all objects where settings inheritance has been overridden, with optional CSV export |
 
 ---
@@ -150,6 +151,65 @@ Full cmdlet help is available via `Get-Help <CmdletName> -Full`.
 | `Start-PRTGScan` | Trigger immediate scan for device, group, or probe |
 | `Move-PRTGObject` | Move an object to a new parent or reorder it |
 | `Test-PRTGServerHealth` | Returns `$true` if the PRTG server is reachable and licensed |
+
+---
+
+## Migrating from an existing PRTG
+
+`Scripts/Import-PRTGStructureFromExcel.ps1` rebuilds a monitoring tree in a new PRTG system from a sensor export of the old one. Export the sensor list from the source installation, point the script at the target, and it recreates groups, devices and - on request - the sensors themselves.
+
+A ready-made example workbook ships in `examples/PRTG-Export-Demo.xlsx`.
+
+### Expected worksheet
+
+One row per sensor, which is what a PRTG sensor export produces. The worksheet is named `Sensoren` by default; use `-WorksheetName` for anything else.
+
+| Column | Required | Meaning |
+|---|---|---|
+| `probe` | yes | Probe name from the source system. Used as the target when neither `-ParentProbeId` nor `-ParentGroupId` is given |
+| `group` | yes | Group the device belongs to. Created one level below the target parent |
+| `device` | yes | Device name. Becomes `<device> (IP: <host>)` in the target |
+| `host` | yes | Address actually monitored, usually an IP |
+| `sensor` | for `-CreateSensors` | Sensor display name exactly as the source system shows it, e.g. `Ping`, `HTTP`, `SNMP Traffic` |
+| `status` | no | Carried along for reference only; the script never reads it |
+
+Extra columns are ignored, so an unedited export works as-is.
+
+### Typical run
+
+```powershell
+# 1. Always preview first - this creates nothing
+.\Scripts\Import-PRTGStructureFromExcel.ps1 -ExcelPath .\examples\PRTG-Export-Demo.xlsx `
+    -ComputerName prtg.example.com -ParentProbeName 'Demo Probe' -WhatIf
+
+# 2. Groups and devices, letting PRTG discover sensors itself
+.\Scripts\Import-PRTGStructureFromExcel.ps1 -ExcelPath .\export.xlsx `
+    -ComputerName prtg.example.com -ParentGroupId 7003
+
+# 3. Or: exactly the sensors from the sheet and nothing else
+.\Scripts\Import-PRTGStructureFromExcel.ps1 -ExcelPath .\export.xlsx `
+    -ComputerName prtg.example.com -ParentGroupId 7003 `
+    -SkipSensorDiscovery -CreateSensors -SensorKindFilter ping, http
+```
+
+The script is idempotent: existing groups, devices and sensors are matched by name and skipped, never duplicated. Running it again after fixing individual errors is safe - and occasionally necessary, because PRTG does not make newly created objects queryable immediately.
+
+### Two ways to get sensors, and why it matters
+
+- **PRTG discovers them** (default). New devices are created with the `discoverytype` setting, so the server runs its own auto-discovery. Fast, but it also creates sensors the sheet does not list.
+- **The script creates them** (`-SkipSensorDiscovery -CreateSensors`). You get exactly what the sheet asks for, narrowed by `-SensorKindFilter`.
+
+> **Sensor creation uses experimental API endpoints.** Groups and devices go through this module's cmdlets, which target stable API v2 endpoints. `-CreateSensors` additionally needs `/experimental/schemas`, `/experimental/sensors` and `POST /experimental/devices/{id}/sensor`. Paessler may change experimental endpoints without notice, so try this part on a test instance before pointing it at production.
+
+Sensor types are resolved by **display name**, not by kind identifier, because both exist in parallel: kind `ping` displays as `Ping`, while `paessler.icmp.ping_sensor` displays as `Ping v2`. A sheet saying `Ping v2` therefore creates the v2 sensor, not the classic one.
+
+### Additional prerequisite
+
+```powershell
+Install-Module ImportExcel      # reads .xlsx without Excel installed
+```
+
+`Get-Help .\Scripts\Import-PRTGStructureFromExcel.ps1 -Full` documents every parameter.
 
 ---
 
