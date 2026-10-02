@@ -9,6 +9,23 @@ This project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **`Scripts/Import-PRTGStructureFromExcel.ps1`** - rebuilds a PRTG tree in a
+  target system from a sensor export: groups and devices through this module's
+  cmdlets, and optionally the sensors themselves via `-CreateSensors`.
+  Idempotent, supports `-WhatIf`, logs to CSV with `-ExportCsv`. It carries the
+  lessons that cost real time to learn - port 1616 rather than 443, the
+  certificate bypass having to be a compiled delegate, text values in API
+  filters needing double quotes, names containing `( ) [ ] &` being
+  unfilterable, newly created objects not being queryable immediately, and
+  sensor types having to be matched by display name because kind `ping` and
+  `paessler.icmp.ping_sensor` coexist and show as `Ping` and `Ping v2`.
+- `examples/PRTG-Export-Demo.xlsx` - example workbook, 23 rows across 3 groups
+  and 8 devices. Addresses come from the RFC 5737 documentation ranges, so they
+  cannot collide with anyone's real network.
+- README section **Migrating from an existing PRTG**: expected worksheet
+  columns, a typical run, the difference between letting PRTG discover sensors
+  and creating exactly the listed ones, and a prominent warning that sensor
+  creation depends on experimental API endpoints.
 - **`Scripts/Install-PRTGPowerShell.ps1`** — offline installer and updater. Reads
   the version from the manifest, creates the correctly named version folder,
   removes the mark-of-the-web and verifies the result. Supports `-Scope`
@@ -20,6 +37,10 @@ This project uses [Semantic Versioning](https://semver.org/).
   and fix.
 
 ### Fixed
+- Another instance of the comment-based help trap, from the other direction: a
+  help block line beginning with `.xlsx` is read as a help keyword and makes
+  PowerShell discard the **entire** block, silently. Found because `Get-Help`
+  returned nothing for the new script; reworded so no line starts with a dot.
 - **Comment-based help in both scripts was never parsed.** A `#requires`
   statement placed *above* the help block stops PowerShell from recognising it,
   so `Get-Help` returned the bare syntax line instead of the documented
