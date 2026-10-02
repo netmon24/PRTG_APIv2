@@ -160,16 +160,22 @@ Full cmdlet help is available via `Get-Help <CmdletName> -Full`.
 The script reads the version from the manifest, creates the matching folder, removes the mark-of-the-web and verifies the result. The same call performs the first installation and every later update.
 
 ```powershell
+# From a downloaded ZIP, unblock FIRST - otherwise the execution policy refuses
+# to run the installer itself, and it cannot unblock what it never started
+Get-ChildItem . -Recurse -File | Unblock-File
+
 .\Scripts\Install-PRTGPowerShell.ps1                   # current user, no admin rights
 .\Scripts\Install-PRTGPowerShell.ps1 -Scope AllUsers   # machine-wide, elevated session
 .\Scripts\Install-PRTGPowerShell.ps1 -WhatIf           # dry run
 ```
 
+On Windows the script always installs into the 64-bit module tree, even when started from a 32-bit PowerShell, and warns when it had to correct for that. After installing it also lists any copies it found in other module roots, because those shadow the new one.
+
 | Parameter | Effect |
 |---|---|
 | `-Scope CurrentUser` \| `AllUsers` | Target location. Default `CurrentUser`. `AllUsers` needs an elevated session. |
 | `-SourcePath <path>` | Where the module files are. Defaults to the repository the script lives in. |
-| `-RemoveOldVersions` | Deletes all other installed versions after a successful copy. |
+| `-RemoveOldVersions` | Deletes other installed versions **in the target scope** after a successful copy. Copies in another module root are reported, never deleted. |
 | `-Force` | Overwrites an already installed identical version. |
 
 `Get-Help .\Scripts\Install-PRTGPowerShell.ps1 -Full` has the rest.
@@ -271,7 +277,10 @@ Scripts\
 | `The specified module 'PRTG.PowerShell' was not loaded because no valid module file was found` / *… wurde nicht geladen, da in keinem Modulverzeichnis eine gültige Moduldatei gefunden wurde* | Version folder name does not match `ModuleVersion`, or one folder level too many | Compare the folder name with `(Import-PowerShellDataFile ...psd1).ModuleVersion`; the manifest must sit **directly** in the version folder |
 | `Access to the path ... is denied` / *Zugriff verweigert* | Writing to `C:\Program Files` without elevation | Start PowerShell as administrator, or install with `-Scope CurrentUser` |
 | `... cannot be loaded because running scripts is disabled on this system` | Execution policy blocks local scripts | `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` for the current session only |
-| `... is not digitally signed` / file appears blocked | Mark-of-the-web on files from a downloaded ZIP | `Get-ChildItem <moduleFolder> -Recurse -File \| Unblock-File` (the install script does this automatically) |
+| `... is not digitally signed`, execution policy is `RemoteSigned` | Mark-of-the-web on files from a downloaded ZIP | `Get-ChildItem . -Recurse -File \| Unblock-File` in the extracted folder, **before** running any script from it |
+| `... is not digitally signed`, execution policy is `AllSigned` | `AllSigned` requires a signature even for local files, so unblocking does not help | `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`. If `Get-ExecutionPolicy -List` shows `AllSigned` under `MachinePolicy` or `UserPolicy` it comes from Group Policy and the process scope **cannot** override it - use [Option B](#option-b--manual-installation) and paste the commands into the console, which the execution policy does not restrict |
+| Module installed, but the normal console does not see it | The install ran in a **32-bit** PowerShell, which puts `$env:ProgramFiles` at `C:\Program Files (x86)`; the 64-bit console does not look there | Current versions of the install script always target the 64-bit tree and warn about this. To check: `Get-Module -ListAvailable PRTG.PowerShell \| Select-Object Version, ModuleBase` |
+| A fix appears to have no effect | An older copy in **another** module root shadows the new one - PowerShell loads the highest version it finds anywhere, and `-RemoveOldVersions` only cleans the target scope | `Get-Module -ListAvailable PRTG.PowerShell \| Select-Object Version, ModuleBase` lists every copy; delete the ones you do not want |
 | Cmdlets still behave like the old version | Old module still loaded in the session | `Import-Module PRTG.PowerShell -Force`, or open a new window |
 | German umlauts appear garbled | Files re-saved without UTF-8 BOM | Restore the original files; PowerShell 5.1 needs the BOM |
 
