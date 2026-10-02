@@ -20,6 +20,28 @@ This project uses [Semantic Versioning](https://semver.org/).
   and fix.
 
 ### Fixed
+- **The installer wrote to the wrong Program Files tree in a 32-bit host.**
+  `$env:ProgramFiles` expands to `C:\Program Files (x86)` there, and a module
+  installed in that tree is invisible to the 64-bit console. It now uses
+  `$env:ProgramW6432`, which always names the 64-bit tree, and warns when it
+  had to correct for a 32-bit host. Found on a real Windows Server, where it
+  produced three parallel installations and a fix that appeared not to work.
+- The installer now reports copies of the module found in **other** module
+  roots. `-RemoveOldVersions` only cleans the target scope - by design, since
+  it must not delete from locations the caller did not name - so an old copy
+  elsewhere kept shadowing the new install with nothing pointing at it.
+  Its parameter description now says so instead of claiming it removes all
+  other versions.
+- README attributed `is not digitally signed` to the mark-of-the-web alone. An
+  `AllSigned` execution policy produces the identical message and needs a
+  completely different remedy - and when it comes from Group Policy, the
+  process scope cannot override it at all, leaving the manual installation as
+  the only route. Both cases are now listed separately, along with the 32-bit
+  tree and the shadowing-copy symptoms.
+- README told readers to run the install script before unblocking the files,
+  which cannot work: the execution policy refuses to start the installer, and
+  an installer that never started cannot unblock anything. `Unblock-File` now
+  comes first.
 - **Comment-based help in both scripts was never parsed.** A `#requires`
   statement placed *above* the help block stops PowerShell from recognising it,
   so `Get-Help` returned the bare syntax line instead of the documented
