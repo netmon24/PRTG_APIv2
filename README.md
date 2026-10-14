@@ -158,7 +158,7 @@ Full cmdlet help is available via `Get-Help <CmdletName> -Full`.
 
 `Scripts/Import-PRTGStructureFromExcel.ps1` rebuilds a monitoring tree in a new PRTG system from a sensor export of the old one. Export the sensor list from the source installation, point the script at the target, and it recreates groups, devices and - on request - the sensors themselves.
 
-A ready-made example workbook ships in `examples/PRTG-Export-Demo.xlsx`.
+A ready-made example workbook ships in `examples/PRTG-Export-Demo.xlsx`: 32 rows, 3 groups, 8 devices, addresses from the RFC 5737 documentation ranges so they cannot collide with a real network. It imitates a real export rather than an idealised one — including sensor names that carry their parameters, such as `SNMP Traffic GigabitEthernet0/0` and `Disk Free C:\`. Those are the rows a migration cannot simply replay; see below.
 
 ### Expected worksheet
 
@@ -170,7 +170,7 @@ One row per sensor, which is what a PRTG sensor export produces. The worksheet i
 | `group` | yes | Group the device belongs to. Created one level below the target parent |
 | `device` | yes | Device name. Becomes `<device> (IP: <host>)` in the target |
 | `host` | yes | Address actually monitored, usually an IP |
-| `sensor` | for `-CreateSensors` | Sensor display name exactly as the source system shows it, e.g. `Ping`, `HTTP`, `SNMP Traffic` |
+| `sensor` | for `-CreateSensors` | Sensor display name exactly as the source system shows it, e.g. `Ping`, `HTTP`, `SNMP Traffic GigabitEthernet0/1` |
 | `status` | no | Carried along for reference only; the script never reads it |
 
 Extra columns are ignored, so an unedited export works as-is.
@@ -182,22 +182,38 @@ Extra columns are ignored, so an unedited export works as-is.
 .\Scripts\Import-PRTGStructureFromExcel.ps1 -ExcelPath .\examples\PRTG-Export-Demo.xlsx `
     -ComputerName prtg.example.com -ParentProbeName 'Demo Probe' -WhatIf
 
-# 2. Groups and devices, letting PRTG discover sensors itself
+# 2. Groups and devices only - the devices start out without sensors
 .\Scripts\Import-PRTGStructureFromExcel.ps1 -ExcelPath .\export.xlsx `
     -ComputerName prtg.example.com -ParentGroupId 7003
 
-# 3. Or: exactly the sensors from the sheet and nothing else
+# 3. And the sensors from the sheet, narrowed to the kinds you want
 .\Scripts\Import-PRTGStructureFromExcel.ps1 -ExcelPath .\export.xlsx `
     -ComputerName prtg.example.com -ParentGroupId 7003 `
-    -SkipSensorDiscovery -CreateSensors -SensorKindFilter ping, http
+    -CreateSensors -SensorKindFilter ping, http
 ```
 
 The script is idempotent: existing groups, devices and sensors are matched by name and skipped, never duplicated. Running it again after fixing individual errors is safe - and occasionally necessary, because PRTG does not make newly created objects queryable immediately.
 
-### Two ways to get sensors, and why it matters
+### How sensors get in, and why it is not automatic
 
-- **PRTG discovers them** (default). New devices are created with the `discoverytype` setting, so the server runs its own auto-discovery. Fast, but it also creates sensors the sheet does not list.
-- **The script creates them** (`-SkipSensorDiscovery -CreateSensors`). You get exactly what the sheet asks for, narrowed by `-SensorKindFilter`.
+- **The script creates them** (`-CreateSensors`). Exactly what the sheet asks for, narrowed by `-SensorKindFilter`. Today this is the only path that works.
+- **PRTG discovers them** — not reachable through API v2. A device carries a `discoverytype` setting in the classic interface, but every API v2 build we have tested answers the device POST with `400 Bad Request` as soon as the field is present. `-SensorDiscoveryMode Standard|Detailed` still attempts it, for the day a newer build accepts it; after the first rejection the script drops the field for the rest of the run and says so in its closing note. Until then: `-CreateSensors`, or start the discovery in the PRTG interface afterwards.
+
+Either way, a newly created device without sensors stays grey in PRTG — that is expected, not a failed import.
+
+### Sensor names that carry their parameters
+
+In a real export most sensor names are not just the type. `SNMP Traffic GigabitEthernet0/1` says *which interface*, `Disk Free C:\` says *which drive*, `Port 1433` says *which port* — and the sheet contains nothing else about it. Those parameters cannot be reconstructed from the export, and a sensor created from the bare type would watch whatever interface PRTG picks first while still reporting a successful migration.
+
+The script therefore resolves types by exact display name, and for a name like `SNMP Traffic GigabitEthernet0/1` it reports the type it recognised, the leftover parameters, and that the row was skipped:
+
+```
+WARNING: Sheet sensor 'SNMP Traffic GigabitEthernet0/0' is type 'SNMP Traffic' plus
+parameters ('GigabitEthernet0/0'). The sheet does not say what to monitor there and
+API v2 cannot guess it - skipped. Recreate this one in PRTG, or let a discovery find it.
+```
+
+Parameterless types — `Ping`, `Ping v2`, `HTTP`, `CPU Load`, `Memory`, `DNS`, `SNMP Uptime` — import directly. For the rest, the export is a checklist, not a blueprint.
 
 > **Sensor creation uses experimental API endpoints.** Groups and devices go through this module's cmdlets, which target stable API v2 endpoints. `-CreateSensors` additionally needs `/experimental/schemas`, `/experimental/sensors` and `POST /experimental/devices/{id}/sensor`. Paessler may change experimental endpoints without notice, so try this part on a test instance before pointing it at production.
 

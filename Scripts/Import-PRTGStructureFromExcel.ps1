@@ -17,9 +17,9 @@
 
       2. DEVICES from columns "device" and "host", one per group. The display
          name follows the convention "<device> (IP: <host>)" while the value
-         from "host" becomes the monitored address. New devices also get
-         PRTG's classic "discoverytype" setting so the server starts its own
-         auto-discovery; -SkipSensorDiscovery turns that off.
+         from "host" becomes the monitored address. No auto-discovery is
+         requested - see -SensorDiscoveryMode for why that is not possible
+         through API v2.
 
       3. SENSORS from column "sensor" - only with -CreateSensors, and only
          those listed in the sheet. Which ones are considered is narrowed by
@@ -76,14 +76,17 @@
     Skips TLS validation, for internal CAs or self-signed certificates.
 
     .PARAMETER SensorDiscoveryMode
-    Value for PRTG's "discoverytype" device setting: Manual (0) performs no
-    auto-discovery, Standard (1) uses the standard sensor types, Detailed (2)
-    uses all known types and comes closest to the variety found in a typical
-    source export.
+    Attempts PRTG's classic "discoverytype" device setting: Standard (1) for the
+    standard sensor types, Detailed (2) for all known types. Default is Manual,
+    which does not send the field at all.
 
-    .PARAMETER SkipSensorDiscovery
-    Does not set "discoverytype" at all. Devices are created with PRTG's own
-    default, so sensors have to be discovered manually afterwards.
+    Manual is the default because every API v2 build tested so far rejects
+    "basic.discoverytype" with HTTP 400 on the device POST - the field belongs
+    to the classic interface and has no counterpart in API v2. Pass Standard or
+    Detailed to find out whether a newer build has gained support: the script
+    tries it on the first device and, once the server rejects it, leaves the
+    field out of the remaining requests instead of producing one 400 per device.
+    Either way the closing note reports what the server actually accepted.
 
     .PARAMETER CreateSensors
     Also creates the sensors listed in the sheet. See the stability note above.
@@ -128,11 +131,11 @@
     .EXAMPLE
     .\Import-PRTGStructureFromExcel.ps1 -ExcelPath 'C:\Temp\export.xlsx' `
         -ComputerName 'prtg.example.com' -ParentProbeId 1 `
-        -SkipSensorDiscovery -CreateSensors -SensorKindFilter ping, http
+        -CreateSensors -SensorKindFilter ping, http
 
-    Creates exactly the ping and HTTP sensors from the sheet and nothing else:
-    auto-discovery stays off, so no sensors appear that the sheet does not ask
-    for.
+    Creates exactly the ping and HTTP sensors from the sheet and nothing else.
+    This is the only way sensors appear at all - PRTG cannot be asked to
+    discover them through API v2.
 
     .EXAMPLE
     .\Import-PRTGStructureFromExcel.ps1 -ExcelPath 'C:\Temp\export.xlsx' `
@@ -173,10 +176,7 @@ param(
 
     [Parameter()]
     [ValidateSet('Manual', 'Standard', 'Detailed')]
-    [string]$SensorDiscoveryMode = 'Detailed',
-
-    [Parameter()]
-    [switch]$SkipSensorDiscovery,
+    [string]$SensorDiscoveryMode = 'Manual',
 
     [Parameter()]
     [switch]$CreateSensors,
@@ -419,12 +419,16 @@ use them: -ExcelPath 'C:\Temp\PRTG Export.xlsx'
 Import-Module PRTG.PowerShell -ErrorAction Stop
 Import-Module ImportExcel -ErrorAction Stop
 
-# Classic PRTG values for the "discoverytype" device setting. The mapping comes
-# from the classic interface. Whether API v2 expects the field at exactly
-# "basic.discoverytype" is NOT verified - the module covers no discovery write
-# endpoints. The device creation below therefore catches a failure on this
-# field and retries without it rather than aborting the whole import.
-$discoveryTypeMap = @{ Manual = 0; Standard = 1; Detailed = 2 }
+# Classic PRTG values for the "discoverytype" device setting, sent only when
+# -SensorDiscoveryMode asks for it. Against a production server every device
+# POST carrying "basic.discoverytype" answered HTTP 400, so the field is left
+# out by default. When it is sent and rejected, $discoveryTypeRejected stops
+# further attempts - one pointless 400 per device teaches nothing new - and
+# $discoverySetCount records how many devices the server did accept it on, so
+# the closing note can state the truth instead of an intention.
+$discoveryTypeMap       = @{ Standard = 1; Detailed = 2 }
+$discoveryTypeRejected  = $false
+$discoverySetCount      = 0
 
 # ---------------------------------------------------------------------
 # Connect
@@ -663,7 +667,7 @@ foreach ($deviceRow in $deviceRows) {
     }
 
     $deviceSettings = $null
-    if (-not $SkipSensorDiscovery -and $SensorDiscoveryMode -ne 'Manual') {
+    if ($SensorDiscoveryMode -ne 'Manual' -and -not $discoveryTypeRejected) {
         $deviceSettings = @{ basic = @{ discoverytype = $discoveryTypeMap[$SensorDiscoveryMode] } }
     }
 
@@ -678,10 +682,12 @@ foreach ($deviceRow in $deviceRows) {
         $created = $null
         try {
             $created = New-PRTGDevice @newDeviceParams
+            if ($deviceSettings) { $discoverySetCount++ }
         }
         catch {
             if ($deviceSettings) {
-                Write-Warning "Creating '$deviceName' with the discoverytype setting failed ($($_.Exception.Message)). Retrying without it - sensors may have to be discovered manually."
+                $discoveryTypeRejected = $true
+                Write-Warning "This server rejects the discoverytype setting ($($_.Exception.Message)). Retrying '$deviceName' without it and omitting the field for the remaining devices. No sensors will be discovered automatically - use -CreateSensors or start a discovery in the PRTG interface."
                 $created = New-PRTGDevice -ParentGroupId $groupId -Name $deviceName -HostAddress $deviceRow.Host
             }
             else {
@@ -750,6 +756,10 @@ if ($CreateSensors) {
                 $hit
             } | Sort-Object -Unique)
 
+        $allSheetNames = @($rows | ForEach-Object { "$($_.sensor)" } | Where-Object { $_ } | Sort-Object -Unique)
+        $filterNote = "  {0} distinct sensor names in the sheet, {1} of them selected by -SensorKindFilter ({2})." -f $allSheetNames.Count, $relevantSheetNames.Count, ($SensorKindFilter -join ', ')
+        Write-Host $filterNote
+
         $resolvedKinds = [System.Collections.Generic.List[object]]::new()
         foreach ($sheetName in $relevantSheetNames) {
             $key = $sheetName.Trim().ToLower()
@@ -759,7 +769,25 @@ if ($CreateSensors) {
                 $resolvedKinds.Add([pscustomobject]@{ SheetName = $sheetName; Kind = $k.kind; DisplayName = $k.name })
             }
             else {
-                Write-Warning "Sheet sensor '$sheetName' has no type with exactly that display name on the target system - skipped."
+                # A real export names a sensor by its type PLUS its parameters:
+                # "SNMP Traffic GigabitEthernet0/1", "Disk Free C:\", "Port 1433".
+                # Those parameters - which interface, which drive, which port -
+                # are exactly what the sheet cannot tell us. Creating the bare
+                # type instead would watch an arbitrary interface and still look
+                # like a successful migration, so the row is named and skipped.
+                $baseKey = $kindByDisplayName.Keys |
+                    Where-Object { $key.StartsWith("$_ ") } |
+                    Sort-Object -Property Length -Descending |
+                    Select-Object -First 1
+
+                if ($baseKey) {
+                    $kindName  = $kindByDisplayName[$baseKey].name
+                    $parameter = $sheetName.Trim().Substring($kindName.Length).Trim()
+                    Write-Warning "Sheet sensor '$sheetName' is type '$kindName' plus parameters ('$parameter'). The sheet does not say what to monitor there and API v2 cannot guess it - skipped. Recreate this one in PRTG, or let a discovery find it."
+                }
+                else {
+                    Write-Warning "Sheet sensor '$sheetName' has no type with exactly that display name on the target system - skipped."
+                }
             }
         }
 
@@ -848,15 +876,21 @@ if ($ExportCsv) {
 # ---------------------------------------------------------------------
 Write-Host ""
 Write-Host "--- Note on sensors ---" -ForegroundColor Yellow
-if ($SkipSensorDiscovery) {
-    Write-Host "  -SkipSensorDiscovery was set, so no auto-discovery setting was applied to" -ForegroundColor Yellow
-    Write-Host "  the new devices. Discover sensors manually in the PRTG interface, or run" -ForegroundColor Yellow
-    Write-Host "  this script again with -CreateSensors to create exactly the sensors listed" -ForegroundColor Yellow
-    Write-Host "  in the sheet." -ForegroundColor Yellow
+if ($discoverySetCount -gt 0) {
+    Write-Host "  $discoverySetCount device(s) accepted discoverytype='$SensorDiscoveryMode'. That server does" -ForegroundColor Yellow
+    Write-Host "  support the field, so it discovers sensors on its own - INCLUDING ones the" -ForegroundColor Yellow
+    Write-Host "  sheet does not list. Please report this, it contradicts what we have seen" -ForegroundColor Yellow
+    Write-Host "  so far. For the sheet's sensors and nothing else, drop -SensorDiscoveryMode." -ForegroundColor Yellow
+}
+elseif ($discoveryTypeRejected) {
+    Write-Host "  This server rejected discoverytype='$SensorDiscoveryMode', so NO auto-discovery" -ForegroundColor Yellow
+    Write-Host "  was requested on any device. Do not wait for sensors to appear: run this" -ForegroundColor Yellow
+    Write-Host "  script again with -CreateSensors for exactly the sensors in the sheet, or" -ForegroundColor Yellow
+    Write-Host "  start a discovery in the PRTG interface." -ForegroundColor Yellow
 }
 else {
-    Write-Host "  New devices were created with discoverytype='$SensorDiscoveryMode', so PRTG" -ForegroundColor Yellow
-    Write-Host "  discovers sensors on its own - INCLUDING ones the sheet does not list. To" -ForegroundColor Yellow
-    Write-Host "  end up with the sheet's sensors and nothing else, run with" -ForegroundColor Yellow
-    Write-Host "  -SkipSensorDiscovery -CreateSensors instead." -ForegroundColor Yellow
+    Write-Host "  No auto-discovery was requested - API v2 rejects the discoverytype field," -ForegroundColor Yellow
+    Write-Host "  so new devices start out without sensors. Run this script again with" -ForegroundColor Yellow
+    Write-Host "  -CreateSensors to create exactly the sensors listed in the sheet, or start" -ForegroundColor Yellow
+    Write-Host "  a discovery in the PRTG interface." -ForegroundColor Yellow
 }
