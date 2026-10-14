@@ -16,6 +16,11 @@
         Objekt-ID der Probe, unter der die neue Gruppe angelegt werden soll.
         Schließt sich mit -ParentGroupId gegenseitig aus.
 
+        Eine Gruppen-ID hier anzugeben beantwortet PRTG mit "404 Not Found" -
+        der Endpunkt für Gruppen unterhalb einer Probe ist ein anderer als der
+        für Gruppen unterhalb einer Gruppe. Das Cmdlet sieht in diesem Fall
+        nach, was das Objekt wirklich ist, und nennt den richtigen Parameter.
+
         .PARAMETER Name
         Anzeigename der neuen Gruppe.
 
@@ -64,7 +69,10 @@
 
     $target = if ($PSCmdlet.ParameterSetName -eq 'Group') { "Gruppe $ParentGroupId" } else { "Probe $ParentProbeId" }
 
+    $parentId   = if ($PSCmdlet.ParameterSetName -eq 'Group') { $ParentGroupId } else { $ParentProbeId }
+    $parentKind = if ($PSCmdlet.ParameterSetName -eq 'Group') { 'group' } else { 'probe' }
+
     if ($PSCmdlet.ShouldProcess($target, "Neue Gruppe '$Name' anlegen")) {
-        Invoke-PRTGRestMethod -Path $path -Method POST -Body $body
+        New-PRTGChildObject -Path $path -Body $body -ParentId $parentId -ExpectedParentKind $parentKind -ChildKind 'group'
     }
 }

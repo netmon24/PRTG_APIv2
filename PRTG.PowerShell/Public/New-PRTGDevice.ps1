@@ -16,6 +16,12 @@
         Objekt-ID der Probe, unter der das neue Gerät angelegt werden soll.
         Schließt sich mit -ParentGroupId gegenseitig aus.
 
+        Vorsicht: Die OpenAPI-Spezifikation der API v2 sieht Geräte nur
+        unterhalb von Gruppen vor, einen Endpunkt für Geräte direkt unter einer
+        Probe gibt es dort nicht. Der Aufruf bleibt erhalten, weil eine spätere
+        PRTG-Version ihn anbieten kann; antwortet der Server mit 404, sagt die
+        Fehlermeldung, dass unter der Probe erst eine Gruppe entstehen muss.
+
         .PARAMETER Name
         Anzeigename des neuen Geräts.
 
@@ -34,7 +40,9 @@
         .EXAMPLE
         New-PRTGDevice -ParentProbeId 1 -Name 'Switch-Keller' -HostAddress '10.0.0.5'
 
-        Legt ein neues Gerät direkt unter der Probe mit der ID 1 an.
+        Versucht, ein Gerät direkt unter der Probe mit der ID 1 anzulegen. Die
+        API v2 kennt diesen Weg nach aktueller Spezifikation nicht - siehe
+        -ParentProbeId.
 
         .OUTPUTS
         PSCustomObject mit den Eigenschaften des neu erstellten Geräts.
@@ -72,7 +80,10 @@
 
     $target = if ($PSCmdlet.ParameterSetName -eq 'Group') { "Gruppe $ParentGroupId" } else { "Probe $ParentProbeId" }
 
+    $parentId   = if ($PSCmdlet.ParameterSetName -eq 'Group') { $ParentGroupId } else { $ParentProbeId }
+    $parentKind = if ($PSCmdlet.ParameterSetName -eq 'Group') { 'group' } else { 'probe' }
+
     if ($PSCmdlet.ShouldProcess($target, "Neues Gerät '$Name' ($HostAddress) anlegen")) {
-        Invoke-PRTGRestMethod -Path $path -Method POST -Body $body
+        New-PRTGChildObject -Path $path -Body $body -ParentId $parentId -ExpectedParentKind $parentKind -ChildKind 'device'
     }
 }

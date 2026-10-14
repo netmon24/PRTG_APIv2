@@ -189,10 +189,19 @@
             if ($prtgErrorBody.request_id) {
                 $detail += " (request_id: $($prtgErrorBody.request_id))"
             }
-            throw $detail
         }
         else {
-            throw "PRTG-API-Aufruf fehlgeschlagen ($Method $uri): $($errorRecord.Exception.Message)"
+            $detail = "PRTG-API-Aufruf fehlgeschlagen ($Method $uri): $($errorRecord.Exception.Message)"
         }
+
+        # Der Statuscode wird an der Ausnahme mitgefuehrt, nicht nur in den Text
+        # geschrieben. Aufrufer koennen damit auf einen bestimmten Fehler reagieren,
+        # ohne Meldungstexte zu durchsuchen - New-PRTGGroup und New-PRTGDevice
+        # nutzen das, um ein 404 beim Anlegen zu erklaeren statt weiterzureichen.
+        $apiError = [System.Exception]::new($detail, $errorRecord.Exception)
+        $apiError.Data['StatusCode'] = $statusCode
+        $apiError.Data['Path']       = $Path
+        $apiError.Data['Method']     = $Method
+        throw $apiError
     }
 }

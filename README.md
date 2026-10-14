@@ -341,6 +341,7 @@ Scripts\
 
 - The `inheritance` include parameter is described by Paessler as not fully stable yet. If `Get-PRTGInheritanceBreak` returns unexpected results on your PRTG version, run `Get-PRTGGroup -Id <id> -Include all_sections,inheritance | ConvertTo-Json -Depth 10` and open an issue with the output so the detection logic can be adjusted.
 - No Sensor-specific write endpoints (Set-PRTGSensor, New-PRTGSensor) — the PRTG API v2 does not yet fully expose these.
+- `New-PRTGDevice -ParentProbeId` has no endpoint behind it. The API v2 specification places devices below groups only; create a group below the probe first. The parameter is still there because a later PRTG version may add the endpoint, and the cmdlet now says so instead of passing on a bare 404.
 - Clusters are not supported by PRTG API v2 itself.
 
 ---
@@ -359,6 +360,7 @@ Scripts\
 | A fix appears to have no effect | An older copy in **another** module root shadows the new one - PowerShell loads the highest version it finds anywhere, and `-RemoveOldVersions` only cleans the target scope | `Get-Module -ListAvailable PRTG.PowerShell \| Select-Object Version, ModuleBase` lists every copy; delete the ones you do not want |
 | Cmdlets still behave like the old version | Old module still loaded in the session | `Import-Module PRTG.PowerShell -Force`, or open a new window |
 | German umlauts appear garbled | Files re-saved without UTF-8 BOM | Restore the original files; PowerShell 5.1 needs the BOM |
+| `404 Not Found` when creating a group or device | The parent id points at another object kind than the parameter implies — a group id passed as `-ParentProbeId`, for instance | `New-PRTGGroup`/`New-PRTGDevice` now look the object up and name the parameter to use; follow the message |
 
 ---
 
