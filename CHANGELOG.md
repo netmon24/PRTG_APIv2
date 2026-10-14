@@ -9,6 +9,44 @@ This project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **`Scripts/Import-PRTGStructureFromExcel.ps1`** - rebuilds a PRTG tree in a
+  target system from a sensor export: groups and devices through this module's
+  cmdlets, and optionally the sensors themselves via `-CreateSensors`.
+  Idempotent, supports `-WhatIf`, logs to CSV with `-ExportCsv`. It carries the
+  lessons that cost real time to learn - port 1616 rather than 443, the
+  certificate bypass having to be a compiled delegate, text values in API
+  filters needing double quotes, names containing `( ) [ ] &` being
+  unfilterable, newly created objects not being queryable immediately, and
+  sensor types having to be matched by display name because kind `ping` and
+  `paessler.icmp.ping_sensor` coexist and show as `Ping` and `Ping v2`.
+- `-ResolveAttempts` and `-ResolveDelayMs` on the import script control how long
+  it waits for a freshly created object to become queryable. The previous fixed
+  window of 8 attempts at 750 ms - about 6 seconds - proved far too short on a
+  real server, where 5 of 8 groups were reported as created but not queryable
+  and all their devices were skipped as a consequence. The default is now 15
+  attempts at 1000 ms, and the warning names the actual window instead of a
+  hard-coded "6 s".
+- `examples/PRTG-Export-Demo.xlsx` - example workbook, 32 rows across 3 groups
+  and 8 devices. Addresses come from the RFC 5737 documentation ranges, so they
+  cannot collide with anyone's real network. 13 of the 32 rows carry sensor names
+  with parameters (`SNMP Traffic GigabitEthernet0/0`, `Disk Free C:\`,
+  `Port 1433`), because that is what a real export looks like and because those
+  are the rows a migration cannot replay. A second worksheet, `Hinweise`,
+  explains the data for whoever opens the file.
+- The import script now says what `-SensorKindFilter` left out ("18 distinct
+  sensor names in the sheet, 9 of them selected") and, for the names it cannot
+  resolve, whether that is because they carry parameters. Those are reported
+  once, grouped by type with examples ("SNMP Traffic 6x Dialer1, eth0,
+  GigabitEthernet0/0, ..."), land in the summary as `Sensor, NeedsParameters`
+  and in the `-ExportCsv` log, so they can be worked off as a list. A real
+  export brings dozens of them, and a wall of identical warnings gets ignored.
+- `-ApiToken` on the import script, so a run needs no console. `-CreateSensors`
+  always prompted for the key, which made the sensor step impossible to run
+  from a scheduled task or a test harness.
+- README section **Migrating from an existing PRTG**: expected worksheet
+  columns, a typical run, why PRTG cannot be asked to discover the sensors
+  itself through API v2, and a prominent warning that sensor creation depends on
+  experimental API endpoints.
 - **`Scripts/Install-PRTGPowerShell.ps1`** — offline installer and updater. Reads
   the version from the manifest, creates the correctly named version folder,
   removes the mark-of-the-web and verifies the result. Supports `-Scope`
@@ -20,6 +58,21 @@ This project uses [Semantic Versioning](https://semver.org/).
   and fix.
 
 ### Fixed
+- **The import script claimed auto-discovery had been set up when the server had
+  refused it.** `basic.discoverytype` is answered with `400 Bad Request` on every
+  device POST — the setting exists in the classic interface, not in API v2. The
+  script sent the field by default, logged a warning per device, retried without
+  it, and then closed with "New devices were created with
+  discoverytype='Detailed', so PRTG discovers sensors on its own". On a 55-device
+  import that produced 55 identical 400s and the expectation of roughly 925
+  sensors appearing by themselves; none ever did. The field is now left out by
+  default (`-SensorDiscoveryMode Manual`), a single rejection stops any further
+  attempt for the rest of the run, and the closing note reports what the server
+  actually accepted rather than what was intended.
+- Another instance of the comment-based help trap, from the other direction: a
+  help block line beginning with `.xlsx` is read as a help keyword and makes
+  PowerShell discard the **entire** block, silently. Found because `Get-Help`
+  returned nothing for the new script; reworded so no line starts with a dot.
 - **Comment-based help in both scripts was never parsed.** A `#requires`
   statement placed *above* the help block stops PowerShell from recognising it,
   so `Get-Help` returned the bare syntax line instead of the documented
@@ -66,6 +119,9 @@ This project uses [Semantic Versioning](https://semver.org/).
   specification.
 
 ### Removed
+- `-SkipSensorDiscovery` on the import script. It did the same thing as
+  `-SensorDiscoveryMode Manual`, which is now the default, so every call needed
+  to get two switches right to express one intention.
 - Internal host names from examples, cmdlet help and scripts; replaced by
   `prtg.example.com`.
 - A `.DS_Store` cleanup step in the installer that could never trigger for
