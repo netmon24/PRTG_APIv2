@@ -1,6 +1,6 @@
 ﻿@{
     RootModule        = 'PRTG.PowerShell.psm1'
-    ModuleVersion      = '1.1.0'
+    ModuleVersion      = '1.2.0'
     GUID               = '7a3d2e1c-4f6b-4a8e-9c2d-1b5e7f9a3c6d'
     Author             = 'Arne Brucker'
     CompanyName        = 'netmon24 GmbH & Co. KG'

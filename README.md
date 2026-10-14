@@ -279,7 +279,7 @@ Import-Module PRTG.PowerShell -Force
 Get-Command -Module PRTG.PowerShell
 ```
 
-The manifest must end up **directly** in the version folder — `...\1.1.0\PRTG.PowerShell.psd1`, not `...\1.1.0\PRTG.PowerShell\PRTG.PowerShell.psd1`.
+The manifest must end up **directly** in the version folder — `...\1.2.0\PRTG.PowerShell.psd1`, not `...\1.2.0\PRTG.PowerShell\PRTG.PowerShell.psd1`.
 
 ### Working from a clone
 

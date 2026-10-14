@@ -8,6 +8,10 @@ This project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+---
+
+## [1.2.0] - 2026-10-14
+
 ### Added
 - **`Scripts/Import-PRTGStructureFromExcel.ps1`** - rebuilds a PRTG tree in a
   target system from a sensor export: groups and devices through this module's
