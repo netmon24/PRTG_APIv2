@@ -57,6 +57,16 @@ This project uses [Semantic Versioning](https://semver.org/).
   folder, missing elevation, execution policy, mark-of-the-web) to their cause
   and fix.
 
+- **`Scripts/Add-PRTGSensorToAllDevices.ps1`** - creates one sensor type on every
+  device below a group or probe. Written for the step after a migration, where
+  the devices exist but nothing is being monitored yet: one ping sensor
+  everywhere, in one command. Walks sub-groups recursively, resolves the type by
+  display name against a real device, skips devices that already carry the
+  sensor, and supports `-WhatIf`, `-ParentGroupId`/`-ParentProbeId`, `-ApiToken`
+  for unattended runs, `-RequestTimeoutMs` and `-PageLimit`. Deliberately
+  limited to parameterless sensor types - an interface or disk sensor needs to
+  be told what to watch, and creating those in bulk would produce sensors
+  pointing at an arbitrary interface.
 ### Fixed
 - **The import script claimed auto-discovery had been set up when the server had
   refused it.** `basic.discoverytype` is answered with `400 Bad Request` on every

@@ -37,6 +37,7 @@ This module wraps the official PRTG API v2 and provides 28 PowerShell cmdlets fo
 |---|---|
 | `Scripts/Import-PRTGStructureFromExcel.ps1` | Rebuilds a PRTG tree - groups, devices, optionally sensors - from an Excel sensor export. See [Migrating from an existing PRTG](#migrating-from-an-existing-prtg) |
 | `Scripts/Find-PRTGInheritanceBreaks.ps1` | Lists all objects where settings inheritance has been overridden, with optional CSV export |
+| `Scripts/Add-PRTGSensorToAllDevices.ps1` | Creates one sensor type on every device below a group or probe, idempotent. See [One sensor on every device](#one-sensor-on-every-device) |
 
 ---
 
@@ -334,6 +335,26 @@ Scripts\
 - **Certificate bypass** — Implemented via `ServicePointManager` callback for PS 5.1 and the native `-SkipCertificateCheck` for PS 7+.
 - **Automatic paging** — `Get-PRTGPagedResult` loops with increasing `offset` until the API returns fewer items than the page size (default: 500).
 - **PRTG error bodies** — `Invoke-PRTGRestMethod` parses the structured PRTG error JSON (`code`, `message`, `request_id`) for readable error messages.
+
+---
+
+## One sensor on every device
+
+After a migration the new devices exist but nothing watches them. `Scripts/Add-PRTGSensorToAllDevices.ps1` walks the tree below a group or probe and puts the same sensor on every device it finds — a ping sensor, typically, so the tree reports something while the real sensors are still missing.
+
+```powershell
+# Preview: how many devices, how many already have it, how many would be created
+.\Scripts\Add-PRTGSensorToAllDevices.ps1 -ComputerName prtg.example.com -ParentGroupId 7003 -WhatIf
+
+# Then for real
+.\Scripts\Add-PRTGSensorToAllDevices.ps1 -ComputerName prtg.example.com -ParentGroupId 7003
+```
+
+It is idempotent: a device that already carries a sensor of that display name is left alone, so it can be run again after fixing individual failures. `-SensorDisplayName` takes the name as PRTG spells it in the *add sensor* dialog — `Ping v2` resolves to kind `paessler.icmp.ping_sensor`, plain `Ping` to the classic `ping`.
+
+Use it only for sensor types that need no parameters of their own. A ping or uptime sensor measures the device itself, so the same sensor is correct everywhere. An interface, disk or port sensor has to be told what to watch, and creating it in bulk would scatter sensors across whatever PRTG happens to pick first.
+
+> Sensor creation uses the experimental endpoints `/experimental/schemas`, `/experimental/sensors` and `POST /experimental/devices/{id}/sensor`. Paessler may change them without notice, so try this on a test instance first.
 
 ---
 
