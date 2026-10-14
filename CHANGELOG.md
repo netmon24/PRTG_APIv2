@@ -33,11 +33,16 @@ This project uses [Semantic Versioning](https://semver.org/).
   `Port 1433`), because that is what a real export looks like and because those
   are the rows a migration cannot replay. A second worksheet, `Hinweise`,
   explains the data for whoever opens the file.
-- The import script now says what `-SensorKindFilter` left out ("32 distinct
-  sensor names in the sheet, 9 of them selected") and, for a name it cannot
-  resolve, whether that is because the name carries parameters. It names the
-  recognised type and the leftover parameters instead of only reporting that no
-  type matched exactly.
+- The import script now says what `-SensorKindFilter` left out ("18 distinct
+  sensor names in the sheet, 9 of them selected") and, for the names it cannot
+  resolve, whether that is because they carry parameters. Those are reported
+  once, grouped by type with examples ("SNMP Traffic 6x Dialer1, eth0,
+  GigabitEthernet0/0, ..."), land in the summary as `Sensor, NeedsParameters`
+  and in the `-ExportCsv` log, so they can be worked off as a list. A real
+  export brings dozens of them, and a wall of identical warnings gets ignored.
+- `-ApiToken` on the import script, so a run needs no console. `-CreateSensors`
+  always prompted for the key, which made the sensor step impossible to run
+  from a scheduled task or a test harness.
 - README section **Migrating from an existing PRTG**: expected worksheet
   columns, a typical run, why PRTG cannot be asked to discover the sensors
   itself through API v2, and a prominent warning that sensor creation depends on

@@ -72,6 +72,11 @@
     on 443, where the classic web server replies with a 302 to the login page
     or "401 Unsupported authorization scheme".
 
+    .PARAMETER ApiToken
+    API key as a SecureString. Left out, the script asks for it where it needs
+    one. Pass it when the run has to work without a console, for instance from a
+    scheduled task or a test harness.
+
     .PARAMETER SkipCertificateCheck
     Skips TLS validation, for internal CAs or self-signed certificates.
 
@@ -170,6 +175,9 @@ param(
     [Parameter()]
     [ValidateRange(1, 65535)]
     [int]$Port = 1616,
+
+    [Parameter()]
+    [securestring]$ApiToken,
 
     [Parameter()]
     [switch]$SkipCertificateCheck,
@@ -436,25 +444,25 @@ $discoverySetCount      = 0
 # The token is always requested when sensors are to be created: the module
 # keeps its session private, while the sensor endpoints go through the embedded
 # REST layer. One token, two connections.
-$apiToken = $null
+$token = $ApiToken
 $alreadyConnected = Test-PRTGServerHealth -WarningAction SilentlyContinue
 
-if (-not $alreadyConnected -or $CreateSensors) {
-    $apiToken = Read-Host -AsSecureString -Prompt "PRTG API key for $ComputerName (port $Port)"
+if (-not $token -and (-not $alreadyConnected -or $CreateSensors)) {
+    $token = Read-Host -AsSecureString -Prompt "PRTG API key for $ComputerName (port $Port)"
 }
 
 if (-not $alreadyConnected) {
     $connectParams = @{
         ComputerName         = $ComputerName
         Port                 = $Port
-        ApiToken             = $apiToken
+        ApiToken             = $token
         SkipCertificateCheck = $SkipCertificateCheck
     }
     Connect-PRTGServer @connectParams
 }
 
 if ($CreateSensors) {
-    Connect-PRTGRawSession -ComputerName $ComputerName -Port $Port -ApiToken $apiToken -SkipCertificateCheck:$SkipCertificateCheck
+    Connect-PRTGRawSession -ComputerName $ComputerName -Port $Port -ApiToken $token -SkipCertificateCheck:$SkipCertificateCheck
 }
 
 # ---------------------------------------------------------------------
@@ -760,7 +768,9 @@ if ($CreateSensors) {
         $filterNote = "  {0} distinct sensor names in the sheet, {1} of them selected by -SensorKindFilter ({2})." -f $allSheetNames.Count, $relevantSheetNames.Count, ($SensorKindFilter -join ', ')
         Write-Host $filterNote
 
-        $resolvedKinds = [System.Collections.Generic.List[object]]::new()
+        $resolvedKinds  = [System.Collections.Generic.List[object]]::new()
+        $needParameters = [System.Collections.Generic.List[object]]::new()
+        $unknownNames   = [System.Collections.Generic.List[string]]::new()
         foreach ($sheetName in $relevantSheetNames) {
             $key = $sheetName.Trim().ToLower()
             if ($kindByDisplayName.ContainsKey($key)) {
@@ -781,14 +791,36 @@ if ($CreateSensors) {
                     Select-Object -First 1
 
                 if ($baseKey) {
-                    $kindName  = $kindByDisplayName[$baseKey].name
-                    $parameter = $sheetName.Trim().Substring($kindName.Length).Trim()
-                    Write-Warning "Sheet sensor '$sheetName' is type '$kindName' plus parameters ('$parameter'). The sheet does not say what to monitor there and API v2 cannot guess it - skipped. Recreate this one in PRTG, or let a discovery find it."
+                    $kindName = $kindByDisplayName[$baseKey].name
+                    $needParameters.Add([pscustomobject]@{
+                            Type      = $kindName
+                            Parameter = $sheetName.Trim().Substring($kindName.Length).Trim()
+                            SheetName = $sheetName
+                        })
                 }
                 else {
-                    Write-Warning "Sheet sensor '$sheetName' has no type with exactly that display name on the target system - skipped."
+                    $unknownNames.Add($sheetName)
                 }
             }
+        }
+
+        # Gesammelt melden, nicht je Zeile: ein echter Export bringt Dutzende
+        # davon mit, und eine Wand gleichlautender Warnungen liest niemand.
+        if ($needParameters.Count -gt 0) {
+            Write-Warning "$($needParameters.Count) sensor name(s) carry their parameters and are skipped - the sheet does not say what to monitor there, and the bare type would watch an arbitrary interface, drive or port:"
+            $needParameters | Group-Object Type | Sort-Object Name | ForEach-Object {
+                $examples = (@($_.Group | ForEach-Object { $_.Parameter }) | Select-Object -First 4) -join ', '
+                if ($_.Count -gt 4) { $examples += ', ...' }
+                Write-Host ("    {0,-18} {1,3}x  {2}" -f $_.Name, $_.Count, $examples) -ForegroundColor Yellow
+            }
+            Write-Host "    Recreate these in PRTG, or let a discovery find them." -ForegroundColor Yellow
+            foreach ($np in $needParameters) {
+                $summary.Add([pscustomobject]@{ Type = 'Sensor'; Name = $np.SheetName; Action = 'NeedsParameters'; Id = $null; ParentId = $null })
+            }
+        }
+
+        if ($unknownNames.Count -gt 0) {
+            Write-Warning "No sensor type on the target system is displayed as: $($unknownNames -join ', ') - skipped."
         }
 
         if ($resolvedKinds.Count -eq 0) {
@@ -888,9 +920,15 @@ elseif ($discoveryTypeRejected) {
     Write-Host "  script again with -CreateSensors for exactly the sensors in the sheet, or" -ForegroundColor Yellow
     Write-Host "  start a discovery in the PRTG interface." -ForegroundColor Yellow
 }
+elseif ($CreateSensors) {
+    Write-Host "  No auto-discovery was requested - API v2 rejects the discoverytype field." -ForegroundColor Yellow
+    Write-Host "  The devices carry exactly the sensors from the sheet that could be created," -ForegroundColor Yellow
+    Write-Host "  and nothing else. Sensor names carrying parameters are not among them; they" -ForegroundColor Yellow
+    Write-Host "  are listed above and in the log, and need a discovery or one call each." -ForegroundColor Yellow
+}
 else {
     Write-Host "  No auto-discovery was requested - API v2 rejects the discoverytype field," -ForegroundColor Yellow
-    Write-Host "  so new devices start out without sensors. Run this script again with" -ForegroundColor Yellow
+    Write-Host "  so a new device starts out without sensors. Run this script again with" -ForegroundColor Yellow
     Write-Host "  -CreateSensors to create exactly the sensors listed in the sheet, or start" -ForegroundColor Yellow
     Write-Host "  a discovery in the PRTG interface." -ForegroundColor Yellow
 }
