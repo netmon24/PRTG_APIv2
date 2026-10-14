@@ -41,6 +41,24 @@ This project uses [Semantic Versioning](https://semver.org/).
   installed into the wrong tree. It is now derived from `$env:PSModulePath`.
 - Uninstall instructions hard-coded that path again instead of using the
   `ModuleBase` the preceding command had just determined.
+- **`404 Not Found` was the answer to three different mistakes when creating a
+  group or device**, and it read like a missing endpoint in all three: the parent
+  id does not exist, it points at another kind of object than the chosen
+  parameter implies, or the server has no endpoint for that parent/child
+  combination. Passing a group id as `-ParentProbeId` cost an afternoon on a
+  production migration. `New-PRTGGroup` and `New-PRTGDevice` now look the object
+  up after a 404 and report which of the three it is - "Objekt 52735 ist eine
+  Gruppe ('...'), erwartet wurde eine Probe. Verwenden Sie -ParentGroupId 52735."
+  Any status other than 404 is passed through untouched.
+- `New-PRTGDevice -ParentProbeId` built the path
+  `/experimental/probes/{id}/device`, which the API v2 specification does not
+  define - devices exist below groups only. The call now explains that and points
+  at `New-PRTGGroup -ParentProbeId` as the first step instead of reporting a bare
+  404. Listed under Known Limitations.
+- `Invoke-PRTGRestMethod` carries the HTTP status code on the exception
+  (`$_.Exception.Data['StatusCode']`, plus path and method) instead of only
+  writing it into the message text, so callers can react to a specific failure
+  without parsing German error strings.
 
 ### Changed
 - **`Scripts/Find-PRTGInheritanceBreaks.ps1` takes parameters** instead of a
