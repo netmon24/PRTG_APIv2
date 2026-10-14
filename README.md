@@ -38,6 +38,7 @@ This module wraps the official PRTG API v2 and provides 28 PowerShell cmdlets fo
 | `Scripts/Import-PRTGStructureFromExcel.ps1` | Rebuilds a PRTG tree - groups, devices, optionally sensors - from an Excel sensor export. See [Migrating from an existing PRTG](#migrating-from-an-existing-prtg) |
 | `Scripts/Find-PRTGInheritanceBreaks.ps1` | Lists all objects where settings inheritance has been overridden, with optional CSV export |
 | `Scripts/Add-PRTGSensorToAllDevices.ps1` | Creates one sensor type on every device below a group or probe, idempotent. See [One sensor on every device](#one-sensor-on-every-device) |
+| `Scripts/Get-PRTGSensorSchemas.ps1` | Reports which fields the API expects for a sensor type and writes the raw schemas to disk. Read-only. See [Which fields does a sensor type need](#which-fields-does-a-sensor-type-need) |
 
 ---
 
@@ -355,6 +356,26 @@ It is idempotent: a device that already carries a sensor of that display name is
 Use it only for sensor types that need no parameters of their own. A ping or uptime sensor measures the device itself, so the same sensor is correct everywhere. An interface, disk or port sensor has to be told what to watch, and creating it in bulk would scatter sensors across whatever PRTG happens to pick first.
 
 > Sensor creation uses the experimental endpoints `/experimental/schemas`, `/experimental/sensors` and `POST /experimental/devices/{id}/sensor`. Paessler may change them without notice, so try this on a test instance first.
+
+---
+
+## Which fields does a sensor type need
+
+The limitation above is the practical ceiling of bulk sensor creation: as soon as a sensor type has to be told *what* to watch, it cannot be scripted — not because the API refuses, but because the API v2 documentation does not say what those fields are called. `Scripts/Get-PRTGSensorSchemas.ps1` asks the server instead.
+
+```powershell
+# Default set of display names on one reference device
+.\Scripts\Get-PRTGSensorSchemas.ps1 -ComputerName prtg.example.com -DeviceId 2001
+
+# Only the types that need parameters
+.\Scripts\Get-PRTGSensorSchemas.ps1 -ComputerName prtg.example.com -DeviceId 2001 -SensorDisplayName 'SNMP Traffic','Disk Free'
+```
+
+The console output is a summary; the deliverable is the folder it writes (`.\prtg-schema-probe` by default): `kinds.json` with every type the device reports, and one `post-<kind>.json` per type with the field list the server expects. A type that is listed but not creatable on that device, and a type whose schema call fails, are both reported and skipped rather than ending the run.
+
+Pick the reference device to match what you intend to create — the creatable types are reported per device, so a switch answers questions about interface sensors and a server answers questions about disks and services.
+
+> **Read-only.** Every request is a GET; the script creates, changes and deletes nothing, so it can be pointed at a production server. It also does not need the module installed — it talks to the API directly, which is deliberate: it shows the unmodified server response rather than something already interpreted.
 
 ---
 

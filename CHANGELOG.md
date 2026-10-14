@@ -67,6 +67,14 @@ This project uses [Semantic Versioning](https://semver.org/).
   limited to parameterless sensor types - an interface or disk sensor needs to
   be told what to watch, and creating those in bulk would produce sensors
   pointing at an arbitrary interface.
+- **`Scripts/Get-PRTGSensorSchemas.ps1`** - reports which fields the API v2
+  expects when creating a sensor type, and writes every raw response to disk.
+  The counterpart to the limitation above: a sensor type that needs parameters
+  cannot be scripted as long as nobody knows what those parameters are called,
+  and the API v2 documentation does not say. Reads the creatable types of a
+  reference device, fetches the POST schema per display name, and reports the
+  top-level keys it actually found instead of assuming a documented shape.
+  Read-only - every request is a GET, so it is safe to point at production.
 ### Fixed
 - **The import script claimed auto-discovery had been set up when the server had
   refused it.** `basic.discoverytype` is answered with `400 Bad Request` on every
